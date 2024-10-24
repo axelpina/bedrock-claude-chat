@@ -3,9 +3,8 @@ import logging
 import os
 from datetime import datetime
 from typing import Any, Literal
-
-import boto3
 from app.repositories.models.custom_bot_guardrails import BedrockGuardrailsModel
+import boto3
 from botocore.client import Config
 from botocore.exceptions import ClientError
 
@@ -16,6 +15,9 @@ BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")
 PUBLISH_API_CODEBUILD_PROJECT_NAME = os.environ.get(
     "PUBLISH_API_CODEBUILD_PROJECT_NAME", ""
 )
+ENABLE_BEDROCK_CROSS_REGION_INFERENCE = os.environ.get(
+    "ENABLE_BEDROCK_CROSS_REGION_INFERENCE", "false"
+).lower() == "true"
 
 
 def snake_to_camel(snake_str):
@@ -38,7 +40,7 @@ def is_running_on_lambda():
 
 
 def get_bedrock_client(region=BEDROCK_REGION):
-    client = boto3.client("bedrock", region)
+    client = boto3.client("bedrock", region_name=region)
     return client
 
 
@@ -47,8 +49,9 @@ def get_bedrock_runtime_client(region=BEDROCK_REGION):
     return client
 
 
+
 def get_bedrock_agent_client(region=BEDROCK_REGION):
-    client = boto3.client("bedrock-agent-runtime", region)
+    client = boto3.client("bedrock-agent-runtime", region_name=region)
     return client
 
 

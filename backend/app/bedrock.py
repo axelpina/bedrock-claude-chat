@@ -13,6 +13,12 @@ from app.repositories.models.custom_bot import GenerationParamsModel
 from app.repositories.models.custom_bot_guardrails import BedrockGuardrailsModel
 from app.routes.schemas.conversation import type_model_name
 from app.utils import convert_dict_keys_to_camel_case, get_bedrock_runtime_client
+from app.utils import (
+    convert_dict_keys_to_camel_case,
+    get_bedrock_runtime_client,
+    is_region_supported_for_cross_inference,
+    ENABLE_BEDROCK_CROSS_REGION_INFERENCE,
+)
 from typing_extensions import NotRequired, TypedDict, no_type_check
 
 logger = logging.getLogger(__name__)
@@ -289,24 +295,58 @@ def calculate_price(
 
     return input_price * input_tokens / 1000.0 + output_price * output_tokens / 1000.0
 
-
 def get_model_id(model: type_model_name) -> str:
-    # Ref: https://docs.aws.amazon.com/bedrock/latest/userguide/model-ids-arns.html
-    if model == "claude-v2":
-        return "anthropic.claude-v2:1"
-    elif model == "claude-instant-v1":
-        return "anthropic.claude-instant-v1"
-    elif model == "claude-v3-sonnet":
-        return "anthropic.claude-3-sonnet-20240229-v1:0"
-    elif model == "claude-v3-haiku":
-        return "anthropic.claude-3-haiku-20240307-v1:0"
-    elif model == "claude-v3-opus":
-        return "anthropic.claude-3-opus-20240229-v1:0"
-    elif model == "claude-v3.5-sonnet":
-        return "anthropic.claude-3-5-sonnet-20240620-v1:0"
-    elif model == "mistral-7b-instruct":
-        return "mistral.mistral-7b-instruct-v0:2"
-    elif model == "mixtral-8x7b-instruct":
-        return "mistral.mixtral-8x7b-instruct-v0:1"
-    elif model == "mistral-large":
-        return "mistral.mistral-large-2402-v1:0"
+    """
+    Ref: https://docs.aws.amazon.com/bedrock/latest/userguide/model-ids-arns.html
+    Ref: https://docs.aws.amazon.com/bedrock/latest/userguide/cross-region-inference-support.html
+    Ref: https://docs.aws.amazon.com/bedrock/latest/userguide/model-lifecycle.html
+    """
+
+    base_model_ids = {
+        "claude-v2": "anthropic.claude-v2:1",
+        "claude-instant-v1": "anthropic.claude-instant-v1",
+        "claude-v3-sonnet": "anthropic.claude-3-sonnet-20240229-v1:0",
+        "claude-v3-haiku": "anthropic.claude-3-haiku-20240307-v1:0",
+        "claude-v3-opus": "anthropic.claude-3-opus-20240229-v1:0",
+        "claude-v3.5-sonnet": "anthropic.claude-3-5-sonnet-20240620-v1:0",
+        "mistral-7b-instruct": "mistral.mistral-7b-instruct-v0:2",
+        "mixtral-8x7b-instruct": "mistral.mixtral-8x7b-instruct-v0:1",
+        "mistral-large": "mistral.mistral-large-2402-v1:0",
+    }
+
+    cross_region_inference_models = {
+        "claude-v3-sonnet",
+        "claude-v3-haiku",
+        "claude-v3-opus",
+        "claude-v3.5-sonnet",
+    }
+
+    region_suffixes = {
+        "us-east-1": "us",
+        "us-west-2": "us",
+        "eu-west-1": "eu",
+        "eu-central-1": "eu",
+        "eu-west-3": "eu",
+    }
+
+    base_model_id = base_model_ids.get(model)
+    if not base_model_id:
+        raise ValueError(f"Unsupported model: {model}")
+
+    model_id = base_model_id
+    if ENABLE_BEDROCK_CROSS_REGION_INFERENCE and model in cross_region_inference_models:
+        region_suffix = region_suffixes.get(BEDROCK_REGION)
+        if region_suffix:
+            model_id = f"{region_suffix}.{base_model_id}"
+            logger.info(
+                f"Using cross-region model ID: {model_id} for model '{model}' in region '{BEDROCK_REGION}'"
+            )
+        else:
+            logger.warning(
+                f"Region '{BEDROCK_REGION}' does not support cross-region inference for model '{model}'. Using local model ID."
+            )
+    else:
+        logger.info(f"Using local model ID: {model_id} for model '{model}'")
+
+    return model_id
+
